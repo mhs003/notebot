@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mhs003/needless/needle/internal/stubtest"
+	"github.com/mhs003/notebot/needle/internal/stubtest"
 )
 
 // startStub spawns a worker backed by the stub engine and a synthetic archive

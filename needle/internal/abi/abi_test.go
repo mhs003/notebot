@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mhs003/needless/needle/internal/stubtest"
+	"github.com/mhs003/notebot/needle/internal/stubtest"
 )
 
 // newStub opens a fresh stub engine and loads a model with the given id.

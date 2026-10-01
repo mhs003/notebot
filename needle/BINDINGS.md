@@ -14,11 +14,11 @@ guess instead of reading.
 ## 1. Layout
 
 The binding is a normal Go package inside this repository's module
-(`github.com/mhs003/needless`). The application imports it as
-`github.com/mhs003/needless/needle`.
+(`github.com/mhs003/notebot`). The application imports it as
+`github.com/mhs003/notebot/needle`.
 
 ```
-go.mod                     module github.com/mhs003/needless
+go.mod                     module github.com/mhs003/notebot
 models/
     needle3.cact           the model archive
 needle/

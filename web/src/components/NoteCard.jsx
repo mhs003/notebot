@@ -1,0 +1,40 @@
+import { FileText, Folder } from 'lucide-react'
+import { Card, Badge } from './ui/card'
+import { timeAgo } from '../lib/utils'
+
+export function NoteCard({ note, onClick }) {
+  return (
+    <Card
+      onClick={onClick}
+      className="group cursor-pointer p-4 transition-all hover:border-primary/40 hover:shadow-md"
+    >
+      <div className="mb-2 flex items-start justify-between gap-2">
+        <h3 className="line-clamp-2 font-medium leading-snug">{note.title}</h3>
+        <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+      </div>
+      <p className="mb-3 line-clamp-3 whitespace-pre-wrap text-sm text-muted-foreground">
+        {note.body || 'Empty note'}
+      </p>
+      <div className="flex items-center justify-between">
+        <Badge className="gap-1">
+          <Folder className="h-3 w-3" /> {note.folder}
+        </Badge>
+        <span className="text-xs text-muted-foreground">{timeAgo(note.updated)}</span>
+      </div>
+    </Card>
+  )
+}
+
+export function FolderCard({ name, count, onClick }) {
+  return (
+    <Card onClick={onClick} className="flex cursor-pointer items-center gap-3 p-4 transition-all hover:border-primary/40 hover:shadow-md">
+      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        <Folder className="h-5 w-5" />
+      </div>
+      <div>
+        <div className="font-medium">{name}</div>
+        <div className="text-xs text-muted-foreground">{count} note{count === 1 ? '' : 's'}</div>
+      </div>
+    </Card>
+  )
+}

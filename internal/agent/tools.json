@@ -1,0 +1,96 @@
+[
+  {
+    "name": "refine_text",
+    "description": "Refine raw user input into a note title, body, folder, and tags. Always call this first for new captures.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "title": {"type": "string", "description": "Short refined title, no trailing period"},
+        "content": {"type": "string", "description": "Refined note body in clean prose or markdown"},
+        "folder_hint": {"type": "string", "description": "Suggested folder name, lowercase single word"},
+        "tags": {"type": "array", "items": {"type": "string"}}
+      },
+      "required": ["title", "content"]
+    }
+  },
+  {
+    "name": "create_note",
+    "description": "Create a note with refined title, content, folder, and tags.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "title": {"type": "string"},
+        "content": {"type": "string"},
+        "folder_hint": {"type": "string"},
+        "tags": {"type": "array", "items": {"type": "string"}}
+      },
+      "required": ["title", "content"]
+    }
+  },
+  {
+    "name": "update_note",
+    "description": "Update an existing note's title or content by id.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "id": {"type": "string"},
+        "title": {"type": "string"},
+        "content": {"type": "string"}
+      },
+      "required": ["id"]
+    }
+  },
+  {
+    "name": "delete_note",
+    "description": "Delete a note by id. Destructive: requires user confirmation.",
+    "parameters": {
+      "type": "object",
+      "properties": {"id": {"type": "string"}},
+      "required": ["id"]
+    }
+  },
+  {
+    "name": "create_folder",
+    "description": "Create a folder by name.",
+    "parameters": {
+      "type": "object",
+      "properties": {"name": {"type": "string"}},
+      "required": ["name"]
+    }
+  },
+  {
+    "name": "rename_folder",
+    "description": "Rename a folder. Destructive-adjacent: requires user confirmation.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "old": {"type": "string"},
+        "new": {"type": "string"}
+      },
+      "required": ["old", "new"]
+    }
+  },
+  {
+    "name": "move_note",
+    "description": "Move a note to another folder. Requires user confirmation.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "id": {"type": "string"},
+        "to_folder": {"type": "string"}
+      },
+      "required": ["id", "to_folder"]
+    }
+  },
+  {
+    "name": "list_notes",
+    "description": "List notes, optionally filtered by folder or query.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "folder": {"type": "string"},
+        "query": {"type": "string"}
+      }
+    }
+  }
+]

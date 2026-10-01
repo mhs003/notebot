@@ -13,7 +13,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/mhs003/needless/needle/internal/worker"
+	"github.com/mhs003/notebot/needle/internal/worker"
 )
 
 func main() {

@@ -1,0 +1,11 @@
+[Unit]
+Description=Notebot local daemon
+After=network.target
+
+[Service]
+ExecStart=%h/.local/bin/notebotd
+Restart=on-failure
+Environment=NOTEBOT_DATA=%h/.notebot
+
+[Install]
+WantedBy=default.target

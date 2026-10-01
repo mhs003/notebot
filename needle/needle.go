@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"sync"
 
-	"github.com/mhs003/needless/needle/internal/worker"
+	"github.com/mhs003/notebot/needle/internal/worker"
 )
 
 // Config describes one Needle instance: the engine, the weights, and the

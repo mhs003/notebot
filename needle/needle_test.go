@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/mhs003/needless/needle/internal/stubtest"
+	"github.com/mhs003/notebot/needle/internal/stubtest"
 )
 
 // --- helpers -------------------------------------------------------------

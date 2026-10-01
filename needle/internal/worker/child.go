@@ -16,7 +16,7 @@ import (
 	"os"
 	"runtime/debug"
 
-	"github.com/mhs003/needless/needle/internal/abi"
+	"github.com/mhs003/notebot/needle/internal/abi"
 )
 
 // RunChild is the entry point for the child process. Its pipes are passed in
