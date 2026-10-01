@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -166,6 +167,12 @@ func main() {
 			switch args[0] {
 			case "model_path":
 				cfg.ModelPath = args[1]
+			case "port":
+				p, err := strconv.Atoi(args[1])
+				if err != nil {
+					return fmt.Errorf("port must be a number")
+				}
+				cfg.Port = p
 			default:
 				return fmt.Errorf("unknown key %s", args[0])
 			}

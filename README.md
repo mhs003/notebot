@@ -1,120 +1,180 @@
 # Notebot
 
-Local CLI + daemon + dashboard for Needle3-refined notes.
+Local-first note capture with an on-device model and a web dashboard. Type a
+thought from the terminal, have it titled and filed automatically, and browse
+everything from a password-protected dashboard served on `127.0.0.1`. Nothing
+leaves the machine.
 
-## Layout
+Notebot is two binaries and an embedded web app:
 
-- `needle/` — Go binding for Needle3 (do not modify API).
-- `models/needle3.cact` — dev model archive (read-only source, never moved).
-- `cmd/nb` — CLI capture tool.
-- `cmd/notebotd` — local daemon (HTTP API + embedded dashboard).
-- `internal/store` — Markdown + SQLite storage, `config.json`.
-- `internal/agent` — Needle3 toolset + refinement loop.
-- `internal/server` — HTTP routes + auth.
-- `web/` — React/Shadcn dashboard (builds to `web/dist`).
+- **`nb`** — capture and manage notes from the terminal.
+- **`notebotd`** — a daemon that loads one [Needle3](https://cactuscompute.com/needle) model,
+  exposes a REST API, and serves the dashboard.
 
-## Model location
+## Features
 
-Dev uses `./models/needle3.cact` directly. Prod resolves `model_path`
-from `config.json` (default `$XDG_DATA_HOME/notebot/models/needle3.cact`,
-fallback `~/.notebot/models/needle3.cact`). Copy once:
+- Capture with plain words — `nb today i wanted to write a poem`.
+- Automatic titles and folder routing, with deterministic fallbacks.
+- Full-text and date-range queries (`--since`, `--until`, `today`, `3 days ago`).
+- Note and folder management: edit, move, delete, rename.
+- Natural-language requests via `nb ask` and an in-dashboard agent panel, with
+  confirmation for destructive actions.
+- Markdown files on disk plus a SQLite index (FTS5), so notes stay readable and
+  greppable outside the app.
+- React + Tailwind dashboard embedded in the daemon binary.
 
-```
-mkdir -p ~/.notebot/models
-cp models/needle3.cact ~/.notebot/models/
-```
+## Requirements
 
-Or run `nb setup` to copy it and set the dashboard password.
+- Linux `x86_64` (the vendored Needle3 engine targets this platform only).
+- Go 1.22 or newer.
+- Node.js 18+ and npm — only to build the dashboard.
+- The Needle3 weights (`models/needle3.cact`) and engine library.
 
-## How notes are produced
+## Installation
 
-Needle3 is a small on-device **tool-calling** model, not a writing model: it
-cannot rewrite or expand prose (it echoes input verbatim). So `nb` splits the
-work:
-
-- **Body** — your original text, cleaned deterministically (whitespace,
-  capitalization, terminal punctuation).
-- **Title / folder** — suggested by Needle3; folder falls back to keyword
-  routing (`poems`, `books`, `shopping`, `work`, `ideas`) when the model is
-  unsure.
-
-The Agent sidebar uses Needle3 for real tool calls (create/move/delete notes
-and folders). Destructive calls require confirmation.
-
-## Env overrides
-
-- `NEEDLE_ENGINE` — engine .so path
-- `NEEDLE_WORKER` — needle-worker binary path
-- `NEEDLE_MODEL` — weights path override
-- `NOTEBOT_PORT` — daemon port (default 8765)
-- `NOTEBOT_DATA` — data dir override
-
-## Build
-
-```
-make web      # builds the dashboard into web/dist (embedded into notebotd)
-make worker && make nb && make daemon
-make install  # installs nb + notebotd to ~/.local/bin
-go test ./... -short
+```bash
+make web                              # build the dashboard into web/dist
+make worker && make nb && make daemon # build binaries into bin/
+make install                          # install nb + notebotd to ~/.local/bin
 ```
 
-`web/dist` is the single source of truth for the frontend and is embedded
-directly by the `web` package (`web/embed.go`) — there is no copy step. It is
-committed so `go build ./...` works without Node. After editing the UI, run
-`make web` and rebuild the daemon.
+Ensure `~/.local/bin` is on your `PATH`.
+
+## Quick start
+
+```bash
+nb setup                              # copy the model, set the dashboard password
+nb "I will go to Nilkhet to buy some books on 21 November"
+nb today i wanted to write a poem
+nb list
+
+notebotd                              # serves the dashboard at http://127.0.0.1:8765
+```
 
 ## Usage
 
-Capture (quoted or bare words both work):
+### Capture
 
-```
-nb "I will go to Nilkhet to buy books next saturday"
+Quoted text and bare words both work. Bare words are captured when the first
+argument is not a subcommand.
+
+```bash
+nb "deadline for the project is 20 October"
 nb today i wanted to write a poem
-nb "deadline 20 october" --dry-run
+nb "buy milk and eggs" --folder shopping   # force a folder
+nb "draft the release notes" --dry-run     # preview without saving
 ```
 
-Query:
+### Query
 
-```
-nb list                      # all notes (alias: ls)
-nb list work                 # notes in a folder
-nb list --since yesterday --until now
-nb list --since 2026-09-01 --until 2026-09-30
-nb list --since "3 days ago"          # today, yesterday, 3 days ago, 2026-01-02
-nb today / nb yesterday      # notes created today / yesterday
-nb find milk                 # full-text search
-nb find poem --since "1 week ago"   # search within a time range
-nb show <id>                 # print one note (id prefix is enough)
-```
+| Command | Description |
+| --- | --- |
+| `nb list` / `nb ls` | All notes. |
+| `nb list <folder>` | Notes in a folder. |
+| `nb list --since yesterday --until now` | Time-bounded listing. |
+| `nb today` / `nb yesterday` | Notes created today or yesterday. |
+| `nb find <text>` | Full-text search. |
+| `nb find <text> --since "1 week ago"` | Search within a time range. |
+| `nb show <id>` | Print one note (ID prefixes are accepted). |
 
-Manage:
+`--since` and `--until` accept `now`, `today`, `yesterday`, `3 days ago`,
+`2 hours ago`, `2026-09-20`, `2026-09-01 14:30`, and similar. Filtering uses the
+note's created time; pass `--updated` to filter on modification time instead.
 
-```
-nb edit <id> --title "New title" --folder work
-nb edit <id>                 # opens $EDITOR (title/folder/---/body format)
-nb mv <id> work              # move to a folder
-nb rm <id> -y                # delete (asks first without -y)
-nb mkfolder recipes
-nb rename old new            # rename a folder
-nb rmfolder recipes -y       # delete folder; its notes move to inbox
-nb folders
-```
+### Manage
 
-Natural language (best-effort):
+| Command | Description |
+| --- | --- |
+| `nb edit <id> --title "…" --folder work` | Update fields directly. |
+| `nb edit <id>` | Open the note in `$EDITOR`. |
+| `nb mv <id> <folder>` | Move a note. |
+| `nb rm <id>` | Delete a note (prompts; `-y` to skip). |
+| `nb mkfolder <name>` | Create a folder. |
+| `nb rename <old> <new>` | Rename a folder. |
+| `nb rmfolder <name>` | Delete a folder; its notes move to `inbox`. |
+| `nb folders` | List folders. |
 
-```
+### Agent
+
+`nb ask` accepts natural-language requests. Explicit verbs — move, delete, and
+rename folder — are resolved deterministically; other requests are handled by
+the model's tool calling.
+
+```bash
 nb ask "move the milk note to shopping"
 nb ask "delete the notebot deadline note"
 nb ask "rename the weekend folder to errands"
 nb ask -y "create a note about the standup"
 ```
 
-Explicit verbs (move/delete/rename folder) are routed deterministically in Go;
-other requests fall through to Needle3 tool-calling.
+The dashboard exposes the same agent through a side panel. Destructive actions
+require explicit confirmation in both interfaces.
 
-Daemon + dashboard:
+## Configuration
+
+### Environment variables
+
+| Variable | Description |
+| --- | --- |
+| `NOTEBOT_DATA` | Data directory (default: `$XDG_DATA_HOME/notebot`, else `~/.notebot`). |
+| `NOTEBOT_PORT` | Daemon port (default: `8765`). |
+| `NEEDLE_MODEL` | Override the model weights path. |
+| `NEEDLE_ENGINE` | Override the engine shared library path. |
+| `NEEDLE_WORKER` | Override the `needle-worker` binary path. |
+
+### `config.json`
+
+Stored in the data directory (mode `0600`):
+
+```json
+{
+  "port": 8765,
+  "data_dir": "/home/user/.local/share/notebot",
+  "model_path": "/home/user/.local/share/notebot/models/needle3.cact",
+  "password_hash": "$2a$10$…",
+  "session_secret": "…"
+}
+```
+
+Read values with `nb config get <model_path|port|data_dir>`, and change them
+with `nb config set <model_path|port> <value>`. Changing either requires a
+daemon restart.
+
+## Data layout
 
 ```
-notebotd --set-password
-notebotd   # serves login + dashboard at http://127.0.0.1:8765/
+<data-dir>/
+├── config.json
+├── index.db                     SQLite: notes, FTS index, embeddings, folders
+├── models/needle3.cact
+└── notes/<folder>/<slug>-<id>.md
 ```
+
+Notes are Markdown with frontmatter (`id`, `title`, `folder`, `created`,
+`updated`, `tags`, `source`). SQLite is the query index; the Markdown files are
+the durable record.
+
+## Note generation
+
+Needle3 is a small on-device **tool-calling** model, not a writing model — it
+does not rewrite prose. Notebot therefore splits the work:
+
+- **Body** — your original text, cleaned deterministically (whitespace,
+  capitalization, terminal punctuation).
+- **Title** — suggested by the model, with a derived fallback.
+- **Folder** — the model's suggestion, falling back to keyword routing
+  (`poems`, `books`, `shopping`, `work`, `ideas`) and then `inbox`.
+
+## Development
+
+```bash
+make web                             # rebuild the dashboard
+make worker && make nb && make daemon
+go test ./... -short                 # test suite
+go vet ./cmd/... ./internal/...
+gofmt -w cmd internal
+```
+
+`web/dist` is built by `make web` and embedded into `notebotd` by
+`web/embed.go`. There is no copy step; after changing the frontend, run
+`make web` and rebuild the daemon.
