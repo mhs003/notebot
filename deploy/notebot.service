@@ -1,3 +1,7 @@
+# Reference unit for the Notebot daemon.
+#
+# Prefer `nb install-service`, which writes this file with the correct absolute
+# binary path and your resolved data directory, then reloads and enables it.
 [Unit]
 Description=Notebot local daemon
 After=network.target
@@ -5,7 +9,12 @@ After=network.target
 [Service]
 ExecStart=%h/.local/bin/notebotd
 Restart=on-failure
-Environment=NOTEBOT_DATA=%h/.notebot
+RestartSec=5
+
+# The daemon resolves its data dir from NOTEBOT_DATA, else $XDG_DATA_HOME/notebot,
+# else ~/.notebot. systemd does not inherit your shell's exports, so set it
+# explicitly if you use a non-default location.
+# Environment=NOTEBOT_DATA=%h/.local/share/notebot
 
 [Install]
 WantedBy=default.target

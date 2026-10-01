@@ -210,6 +210,15 @@ Loads config, ensures a session secret, opens the store, builds one `Agent`
 (the expensive model load happens once here), sets `server.WebFS`, and serves on
 `127.0.0.1:<port>`. `--set-password` sets the bcrypt hash and exits.
 
+The daemon finds `needle-worker` beside its own executable and then on `$PATH`,
+so all three binaries must be installed together (`make install`).
+
+Under systemd, the data directory is resolved from the process environment —
+`NOTEBOT_DATA`, else `$XDG_DATA_HOME/notebot`, else `~/.notebot`. systemd does
+not inherit the shell's exports, so the unit must set `NOTEBOT_DATA` explicitly
+to the directory `nb setup` used. `nb install-service` generates the unit with
+the correct absolute paths, the resolved data dir, and the configured port.
+
 ### `web/`
 
 Vite + React + Tailwind, styled after shadcn/ui (components are hand-written

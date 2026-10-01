@@ -80,7 +80,7 @@ func main() {
 	ctx := context.Background()
 	ag, err := agent.New(ctx, cfg, st)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "agent:", err)
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 	defer ag.Close()

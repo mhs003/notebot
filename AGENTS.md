@@ -20,7 +20,7 @@ treated as third-party.
 ```bash
 make worker && make nb && make daemon   # build binaries into bin/
 make web                                # build the dashboard into web/dist
-make install                            # install nb + notebotd to ~/.local/bin
+make install                            # install nb, notebotd, needle-worker to ~/.local/bin
 go test ./... -short                    # full test suite
 go vet ./cmd/... ./internal/...
 gofmt -w cmd internal                   # format (run before committing)
@@ -104,6 +104,13 @@ them away.
 - `models/` is excluded via `.git/info/exclude`; the model is copied into the
   data dir by `nb setup`, never committed.
 - Folder deletion moves notes to `inbox`; it must never delete notes.
+- `notebotd` finds `needle-worker` beside its own executable, then on `$PATH`.
+  `make install` must therefore ship all three binaries; installing only `nb`
+  and `notebotd` leaves the daemon unable to start.
+- The systemd unit must pin `NOTEBOT_DATA` to the resolved data dir. systemd
+  does not inherit the shell's exports, so a unit that omits it (or hardcodes a
+  different path) makes the daemon look in the wrong directory. `nb
+  install-service` writes it correctly; do not hand-edit a hardcoded path back in.
 
 ## Definition of done
 

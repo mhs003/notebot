@@ -35,10 +35,23 @@ Notebot is two binaries and an embedded web app:
 ```bash
 make web                              # build the dashboard into web/dist
 make worker && make nb && make daemon # build binaries into bin/
-make install                          # install nb + notebotd to ~/.local/bin
+make install                          # install nb, notebotd, needle-worker to ~/.local/bin
 ```
 
 Ensure `~/.local/bin` is on your `PATH`.
+
+### Run as a service
+
+```bash
+nb install-service            # write, enable, and start a systemd user unit
+nb install-service --no-start # write it without enabling
+nb uninstall-service          # stop and remove it
+```
+
+`install-service` writes `~/.config/systemd/user/notebot.service` with the
+absolute daemon path, your resolved data directory, and the configured port, then
+runs `systemctl --user enable --now notebot`. This avoids the daemon resolving a
+different data directory than the one `nb setup` used.
 
 ## Quick start
 

@@ -25,7 +25,7 @@ var knownCommands = map[string]bool{
 	"folders": true, "show": true, "today": true, "yesterday": true,
 	"rm": true, "delete": true, "mv": true, "move": true, "edit": true,
 	"mkfolder": true, "mkdir": true, "rmfolder": true, "rmdir": true,
-	"rename": true, "ask": true,
+	"rename": true, "ask": true, "install-service": true, "uninstall-service": true,
 	"setup": true, "config": true, "serve": true, "help": true, "completion": true,
 }
 
@@ -103,6 +103,8 @@ func main() {
 	root.AddCommand(newRmFolderCmd(&dataDir))
 	root.AddCommand(newRenameFolderCmd(&dataDir))
 	root.AddCommand(newAskCmd(&dataDir))
+	root.AddCommand(newInstallServiceCmd(&dataDir))
+	root.AddCommand(newUninstallServiceCmd())
 	root.AddCommand(&cobra.Command{
 		Use:   "recent",
 		Short: "Show recent notes",

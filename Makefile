@@ -26,8 +26,8 @@ BINDIR ?= $(PREFIX)/bin
 
 install: nb daemon
 	mkdir -p $(BINDIR)
-	cp $(NB) $(DAEMON) $(BINDIR)/
-	@echo "installed nb + notebotd to $(BINDIR) (ensure it is on PATH)"
+	cp $(NB) $(DAEMON) $(WORKER) $(BINDIR)/
+	@echo "installed nb, notebotd, needle-worker to $(BINDIR) (ensure it is on PATH)"
 
 test:
 	go test ./... -short
