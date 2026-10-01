@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Bot, Send, AlertTriangle, Check, Loader2 } from 'lucide-react'
+import { Bot, Send, AlertTriangle, Check, Loader2, Copy, FilePlus2, X } from 'lucide-react'
 import { Sheet, SheetHeader } from './ui/dialog'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
@@ -17,16 +17,18 @@ export function AgentSheet({ open, onClose, onChanged }) {
   const [busy, setBusy] = useState(false)
   const [log, setLog] = useState([])
   const [pending, setPending] = useState(null)
+  const [choice, setChoice] = useState(null)
   const [error, setError] = useState('')
 
-  const run = async (text, confirmId) => {
+  const handle = async (payload) => {
     setBusy(true)
     setError('')
     try {
-      const res = await api.agent(confirmId ? prompt : text, confirmId)
+      const res = await api.agent(payload)
       setLog((l) => [...l, { kind: 'result', text: res.summary, calls: res.calls }])
-      if (res.needs_confirm) setPending(res)
-      else { setPending(null); onChanged?.() }
+      setPending(res.needs_confirm ? res : null)
+      setChoice(res.needs_choice ? res : null)
+      if (!res.needs_confirm && !res.needs_choice) onChanged?.()
     } catch (e) {
       setError(e.message)
     } finally {
@@ -37,8 +39,16 @@ export function AgentSheet({ open, onClose, onChanged }) {
   const submit = (e) => {
     e.preventDefault()
     if (!prompt.trim()) return
-    setLog((l) => [...l, { kind: 'user', text: prompt }])
-    run(prompt)
+    const p = prompt
+    setLog((l) => [...l, { kind: 'user', text: p }])
+    handle({ prompt: p })
+  }
+
+  const resolveChoice = async (decision) => {
+    const id = choice.choice_id
+    setChoice(null)
+    setLog((l) => [...l, { kind: 'user', text: decision === 'update' ? 'update the existing note' : decision === 'new' ? 'create a new note' : 'cancel' }])
+    await handle({ choice_id: id, decision })
   }
 
   return (
@@ -93,6 +103,38 @@ export function AgentSheet({ open, onClose, onChanged }) {
             )}
           </div>
         ))}
+
+        {choice && (
+          <div className="rounded-lg border border-primary/40 bg-primary/5 p-3 text-sm">
+            <div className="mb-2 flex items-center gap-2 font-medium text-primary">
+              <Copy className="h-4 w-4" /> A note with this title already exists
+            </div>
+            <div className="mb-3 space-y-2">
+              <div className="rounded-md bg-background p-2">
+                <div className="text-xs text-muted-foreground">Existing · {choice.existing?.folder}</div>
+                <div className="font-medium">{choice.existing?.title}</div>
+                <p className="line-clamp-2 text-muted-foreground">{choice.existing?.body || '(empty)'}</p>
+              </div>
+              <div className="rounded-md bg-background p-2">
+                <div className="text-xs text-muted-foreground">New</div>
+                <div className="font-medium">{choice.proposed?.title}</div>
+                <p className="line-clamp-2 text-muted-foreground">{choice.proposed?.body || '(empty)'}</p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" onClick={() => resolveChoice('update')} disabled={busy}>
+                <Check className="h-4 w-4" /> Update existing
+              </Button>
+              <Button size="sm" variant="secondary" onClick={() => resolveChoice('new')} disabled={busy}>
+                <FilePlus2 className="h-4 w-4" /> Create new
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => resolveChoice('cancel')} disabled={busy}>
+                <X className="h-4 w-4" /> Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+
         {pending && (
           <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 text-sm">
             <div className="mb-2 flex items-center gap-2 font-medium text-amber-600 dark:text-amber-400">
@@ -100,7 +142,7 @@ export function AgentSheet({ open, onClose, onChanged }) {
             </div>
             <p className="mb-3 text-muted-foreground">{pending.summary}</p>
             <div className="flex gap-2">
-              <Button size="sm" variant="destructive" onClick={() => run(null, pending.confirm_id)} disabled={busy}>
+              <Button size="sm" variant="destructive" onClick={() => handle({ confirm_id: pending.confirm_id })} disabled={busy}>
                 <Check className="h-4 w-4" /> Confirm
               </Button>
               <Button size="sm" variant="outline" onClick={() => setPending(null)}>Cancel</Button>

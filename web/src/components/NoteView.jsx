@@ -5,16 +5,19 @@ import { Input, Textarea } from './ui/input'
 import { Badge } from './ui/card'
 import { api } from '../lib/api'
 
-export function NoteView({ id, onBack, onChanged }) {
+export function NoteView({ id, folders, onBack, onChanged }) {
   const [note, setNote] = useState(null)
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
+  const [folder, setFolder] = useState('')
   const [saving, setSaving] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   useEffect(() => {
     if (!id) return
-    api.note(id).then((n) => { setNote(n); setTitle(n.title); setBody(n.body) })
+    api.note(id).then((n) => {
+      setNote(n); setTitle(n.title); setBody(n.body); setFolder(n.folder)
+    })
   }, [id])
 
   if (!note) return <div className="p-8 text-muted-foreground">Loading…</div>
@@ -22,7 +25,7 @@ export function NoteView({ id, onBack, onChanged }) {
   const save = async () => {
     setSaving(true)
     try {
-      await api.updateNote(id, { title, content: body })
+      await api.updateNote(id, { title, content: body, folder })
       onChanged?.()
       onBack()
     } finally {
@@ -58,7 +61,22 @@ export function NoteView({ id, onBack, onChanged }) {
         </div>
       </div>
 
-      <Badge className="mb-4 gap-1"><Folder className="h-3 w-3" /> {note.folder}</Badge>
+      <div className="mb-4 flex items-center gap-2">
+        <Folder className="h-4 w-4 text-muted-foreground" />
+        <Input
+          value={folder}
+          list="note-folder-list"
+          onChange={(e) => setFolder(e.target.value)}
+          className="h-8 w-48"
+        />
+        <datalist id="note-folder-list">
+          {folders.map((f) => <option key={f} value={f} />)}
+        </datalist>
+        <span className="text-xs text-muted-foreground">
+          created {new Date(note.created).toLocaleString()} · updated {new Date(note.updated).toLocaleString()}
+        </span>
+      </div>
+
       <Input
         value={title}
         onChange={(e) => setTitle(e.target.value)}

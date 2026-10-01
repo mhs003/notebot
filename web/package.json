@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "rm -rf dist/assets dist/index.html",
     "build": "vite build",
     "preview": "vite preview"
   },

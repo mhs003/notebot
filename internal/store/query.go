@@ -158,6 +158,77 @@ func ftsQuery(s string) string {
 	return strings.Join(quoted, " ")
 }
 
+// titleStopWords carry no identifying signal when comparing titles.
+var titleStopWords = map[string]bool{
+	"the": true, "a": true, "an": true, "and": true, "of": true, "to": true,
+	"for": true, "with": true, "my": true, "is": true, "in": true, "on": true,
+	"about": true, "note": true, "notes": true,
+}
+
+func titleWords(s string) []string {
+	s = strings.ToLower(s)
+	s = strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			return r
+		}
+		return ' '
+	}, s)
+	var out []string
+	for _, w := range strings.Fields(s) {
+		if len(w) >= 3 && !titleStopWords[w] {
+			out = append(out, w)
+		}
+	}
+	return out
+}
+
+func jaccard(a, b []string) float64 {
+	set := func(xs []string) map[string]bool {
+		m := map[string]bool{}
+		for _, x := range xs {
+			m[x] = true
+		}
+		return m
+	}
+	sa, sb := set(a), set(b)
+	if len(sa) == 0 || len(sb) == 0 {
+		return 0
+	}
+	inter := 0
+	for k := range sa {
+		if sb[k] {
+			inter++
+		}
+	}
+	return float64(inter) / float64(len(sa)+len(sb)-inter)
+}
+
+// FindSimilarTitle returns the existing note whose title is most similar to
+// the given one, or nil when nothing is close enough. "Chores" and "Chores
+// tomorrow" match; unrelated titles do not.
+func (s *Store) FindSimilarTitle(title string) (*Note, error) {
+	want := titleWords(title)
+	if len(want) == 0 {
+		return nil, nil
+	}
+	notes, err := s.List("", 500)
+	if err != nil {
+		return nil, err
+	}
+	var best *Note
+	bestSim := 0.0
+	for _, n := range notes {
+		sim := jaccard(want, titleWords(n.Title))
+		if sim > bestSim {
+			bestSim, best = sim, n
+		}
+	}
+	if bestSim >= 0.5 {
+		return best, nil
+	}
+	return nil, nil
+}
+
 // ResolveID turns a full id or a unique prefix into a full id.
 func (s *Store) ResolveID(prefix string) (string, error) {
 	prefix = strings.TrimSpace(prefix)

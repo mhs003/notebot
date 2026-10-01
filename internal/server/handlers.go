@@ -3,8 +3,11 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
+	"github.com/mhs003/notebot/internal/dates"
 	"github.com/mhs003/notebot/internal/store"
 )
 
@@ -63,8 +66,29 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 func (s *Server) notes(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		folder := r.URL.Query().Get("folder")
-		notes, err := s.st.List(folder, 100)
+		q := store.Query{Folder: r.URL.Query().Get("folder")}
+		if v, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil {
+			q.Limit = v
+		}
+		q.ByUpdated = r.URL.Query().Get("by") == "updated"
+		now := time.Now()
+		if s := r.URL.Query().Get("since"); s != "" {
+			t, err := dates.ParseInstant(s, now, false)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			q.Since = t
+		}
+		if s := r.URL.Query().Get("until"); s != "" {
+			t, err := dates.ParseInstant(s, now, true)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			q.Until = t
+		}
+		notes, err := s.st.Query(q)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -172,6 +196,37 @@ func (s *Server) folders(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, map[string]string{"name": body.Name})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) folderByName(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimPrefix(r.URL.Path, "/api/folders/")
+	if name == "" {
+		http.Error(w, "missing folder name", http.StatusBadRequest)
+		return
+	}
+	switch r.Method {
+	case http.MethodPatch, http.MethodPut:
+		var body struct {
+			Name string `json:"name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		if err := s.st.RenameFolder(name, body.Name); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]string{"name": body.Name})
+	case http.MethodDelete:
+		if err := s.st.DeleteFolder(name); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": true})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}

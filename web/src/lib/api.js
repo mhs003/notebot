@@ -13,22 +13,35 @@ async function request(path, opts = {}) {
   return r.json()
 }
 
+function qs(params = {}) {
+  const p = new URLSearchParams()
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== '') p.set(k, v)
+  }
+  const s = p.toString()
+  return s ? `?${s}` : ''
+}
+
 export const api = {
   status: () => request('/api/auth/status'),
   login: (password) => request('/api/auth/login', { method: 'POST', body: JSON.stringify({ password }) }),
   logout: () => request('/api/auth/logout', { method: 'POST' }),
 
-  notes: (folder) => request('/api/notes' + (folder ? `?folder=${encodeURIComponent(folder)}` : '')),
+  notes: (params) => request('/api/notes' + qs(params)),
   recent: () => request('/api/recent'),
   note: (id) => request(`/api/notes/${id}`),
   createNote: (note) => request('/api/notes', { method: 'POST', body: JSON.stringify(note) }),
   updateNote: (id, patch) => request(`/api/notes/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteNote: (id) => request(`/api/notes/${id}`, { method: 'DELETE' }),
+
   folders: () => request('/api/folders'),
   createFolder: (name) => request('/api/folders', { method: 'POST', body: JSON.stringify({ name }) }),
-  search: (q) => request('/api/search?q=' + encodeURIComponent(q)),
+  renameFolder: (name, next) => request(`/api/folders/${encodeURIComponent(name)}`, { method: 'PATCH', body: JSON.stringify({ name: next }) }),
+  deleteFolder: (name) => request(`/api/folders/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+
+  search: (q, params) => request('/api/search' + qs({ q, ...params })),
   capture: (raw) => request('/api/capture', { method: 'POST', body: JSON.stringify({ raw }) }),
-  agent: (prompt, confirmId) => request('/api/agent', { method: 'POST', body: JSON.stringify({ prompt, confirm_id: confirmId || '' }) }),
+  agent: (payload) => request('/api/agent', { method: 'POST', body: JSON.stringify(payload) }),
   settings: () => request('/api/settings'),
   saveSettings: (s) => request('/api/settings', { method: 'PUT', body: JSON.stringify(s) }),
 }

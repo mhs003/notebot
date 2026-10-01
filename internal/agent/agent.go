@@ -51,10 +51,10 @@ func New(ctx context.Context, cfg store.Config, st *store.Store) (*Agent, error)
 func (a *Agent) Close() error { return a.n.Close() }
 
 type Refined struct {
-	Title  string
-	Body   string
-	Folder string
-	Tags   []string
+	Title  string   `json:"title"`
+	Body   string   `json:"body"`
+	Folder string   `json:"folder"`
+	Tags   []string `json:"tags"`
 }
 
 // RefineAndRoute cleans the raw capture deterministically and uses needle3 to
@@ -113,18 +113,13 @@ type StepResult struct {
 	ConfirmID    string   `json:"confirm_id,omitempty"`
 	Summary      string   `json:"summary"`
 	Calls        []string `json:"calls"`
-}
 
-func (a *Agent) Capture(ctx context.Context, raw string) (*store.Note, error) {
-	r, err := a.RefineAndRoute(ctx, raw)
-	if err != nil {
-		return nil, err
-	}
-	n := &store.Note{Title: r.Title, Body: r.Body, Folder: r.Folder, Tags: r.Tags, Source: "cli", RawPrompt: raw}
-	if err := a.store.Create(n); err != nil {
-		return nil, err
-	}
-	return n, nil
+	// NeedsChoice is set when a create would duplicate an existing title. The
+	// caller decides whether to update the existing note or create a new one.
+	NeedsChoice bool        `json:"needs_choice,omitempty"`
+	ChoiceID    string      `json:"choice_id,omitempty"`
+	Existing    *store.Note `json:"existing,omitempty"`
+	Proposed    *store.Note `json:"proposed,omitempty"`
 }
 
 type PendingCall struct {
@@ -132,10 +127,72 @@ type PendingCall struct {
 	Args json.RawMessage
 }
 
+type pendingChoice struct {
+	Call       PendingCall
+	ExistingID string
+}
+
 var pending = struct {
 	sync.Mutex
 	m map[string]PendingCall
 }{m: map[string]PendingCall{}}
+
+var choices = struct {
+	sync.Mutex
+	m map[string]pendingChoice
+}{m: map[string]pendingChoice{}}
+
+// ResolveChoice applies the answer to a "this title already exists" prompt:
+// update the existing note, create a new one, or cancel.
+func (a *Agent) ResolveChoice(ctx context.Context, choiceID, decision string) (StepResult, error) {
+	choices.Lock()
+	ch, ok := choices.m[choiceID]
+	if ok {
+		delete(choices.m, choiceID)
+	}
+	choices.Unlock()
+	if !ok {
+		return StepResult{}, fmt.Errorf("agent: unknown choice_id")
+	}
+	if decision == "cancel" {
+		return StepResult{Summary: "cancelled"}, nil
+	}
+	if decision == "update" {
+		var p struct {
+			Title      string   `json:"title"`
+			Content    string   `json:"content"`
+			FolderHint string   `json:"folder_hint"`
+			Tags       []string `json:"tags"`
+		}
+		if err := json.Unmarshal(ch.Call.Args, &p); err != nil {
+			return StepResult{}, err
+		}
+		n, err := a.store.Get(ch.ExistingID)
+		if err != nil {
+			return StepResult{}, err
+		}
+		if p.Title != "" {
+			n.Title = p.Title
+		}
+		if p.Content != "" {
+			n.Body = p.Content
+		}
+		if f := normalizeFolder(p.FolderHint); f != "" {
+			n.Folder = f
+		}
+		if p.Tags != nil {
+			n.Tags = p.Tags
+		}
+		if err := a.store.Update(n); err != nil {
+			return StepResult{}, err
+		}
+		return StepResult{Summary: "updated existing note: " + n.Title, Calls: []string{"update_note"}}, nil
+	}
+	if err := a.exec(ctx, ch.Call.Name, ch.Call.Args); err != nil {
+		return StepResult{}, err
+	}
+	return StepResult{Summary: "created new note", Calls: []string{ch.Call.Name}}, nil
+}
 
 func (a *Agent) RunStep(ctx context.Context, prompt string, confirmID string) (StepResult, error) {
 	if confirmID != "" {
@@ -156,7 +213,7 @@ func (a *Agent) RunStep(ctx context.Context, prompt string, confirmID string) (S
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	calls, ok := a.route(prompt)
+	calls, ok := route(a.store, prompt)
 	if !ok {
 		_ = a.n.Reset(ctx)
 		res, err := a.n.CompleteResult(ctx, a.withContext(prompt), 512)
@@ -178,6 +235,21 @@ func (a *Agent) RunStep(ctx context.Context, prompt string, confirmID string) (S
 			out.ConfirmID = id
 			out.Summary = "confirm " + c.Name + ": " + string(c.Arguments)
 			break
+		}
+		// A create whose title already exists needs a decision, not a second note.
+		if c.Name == "create_note" {
+			if existing, proposed := a.duplicateTitle(c); existing != nil {
+				id := store.NewID()
+				choices.Lock()
+				choices.m[id] = pendingChoice{Call: PendingCall{Name: c.Name, Args: c.Arguments}, ExistingID: existing.ID}
+				choices.Unlock()
+				out.NeedsChoice = true
+				out.ChoiceID = id
+				out.Existing = existing
+				out.Proposed = proposed
+				out.Summary = "a note titled " + existing.Title + " already exists"
+				break
+			}
 		}
 		if err := a.exec(ctx, c.Name, c.Arguments); err != nil {
 			out.Summary += "error " + c.Name + ": " + err.Error() + "; "
@@ -253,9 +325,32 @@ func matchNotes(prompt string, notes []*store.Note) []*store.Note {
 	return out
 }
 
+// duplicateTitle reports the existing note a create would duplicate, plus the
+// note that would have been created.
+func (a *Agent) duplicateTitle(c needle.FunctionCall) (*store.Note, *store.Note) {
+	var p struct {
+		Title      string   `json:"title"`
+		Content    string   `json:"content"`
+		FolderHint string   `json:"folder_hint"`
+		Tags       []string `json:"tags"`
+	}
+	if err := c.Bind(&p); err != nil || strings.TrimSpace(p.Title) == "" {
+		return nil, nil
+	}
+	existing, err := a.store.FindSimilarTitle(p.Title)
+	if err != nil || existing == nil {
+		return nil, nil
+	}
+	folder := normalizeFolder(p.FolderHint)
+	if folder == "" {
+		folder = "inbox"
+	}
+	return existing, &store.Note{Title: p.Title, Body: p.Content, Folder: folder, Tags: p.Tags}
+}
+
 func isDestructive(name string) bool {
 	switch name {
-	case "delete_note", "move_note", "rename_folder":
+	case "delete_note", "move_note", "rename_folder", "update_note":
 		return true
 	}
 	return false

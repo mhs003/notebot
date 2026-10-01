@@ -36,6 +36,7 @@ func New(cfg store.Config, st *store.Store) *Server {
 	mux.HandleFunc("/api/notes", s.notes)
 	mux.HandleFunc("/api/notes/", s.noteByID)
 	mux.HandleFunc("/api/folders", s.folders)
+	mux.HandleFunc("/api/folders/", s.folderByName)
 	mux.HandleFunc("/api/recent", s.recent)
 	mux.HandleFunc("/api/search", s.search)
 	s.mux = mux

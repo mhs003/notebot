@@ -127,15 +127,22 @@ copies the input verbatim. So the design splits the work:
   (`poems`, `books`, `shopping`, `work`, `ideas`), defaulting to `inbox`.
 
 **Tool selection.** `route.go` resolves explicit verbs deterministically in Go —
-`move`, `delete`/`remove`, and `rename folder` — by matching note titles and
-folder names. This exists because the model reliably picks the wrong tool for
-these (it will `create_note` when asked to move). Everything else falls through
-to the model via `withContext`, which prepends candidate notes **only when the
-request references an existing note** — dumping all notes into a plain create
-request made the model copy unrelated bodies.
+`move`, `delete`/`remove`, `rename folder`, and `update`/`change` — by matching
+note titles and folder names. This exists because the model reliably picks the
+wrong tool for these (it will `create_note` when asked to move, or hallucinate a
+`rename_folder`). Everything else falls through to the model via `withContext`,
+which prepends candidate notes **only when the request references an existing
+note** — dumping all notes into a plain create request made the model copy
+unrelated bodies.
 
-**Confirmation gate.** `delete_note`, `move_note`, and `rename_folder` are
-destructive. `RunStep` refuses to execute them directly: it stores the call in a
+`RoutePrompt` exposes the router without the model so `nb "<text>"` can decide
+whether text is a command: it is routed only when the first word is a management
+verb *and* the target resolves. Ambiguous text is captured instead, which keeps
+the model out of the loop entirely.
+
+**Confirmation gate.** `delete_note`, `move_note`, `rename_folder`, and
+`update_note` change existing data. `RunStep` refuses to execute them directly:
+it stores the call in a
 package-level `pending` map under a random `confirm_id` and returns
 `{needs_confirm, confirm_id, summary}`. The caller re-invokes with `confirm_id`
 to actually apply it. Only the first destructive call in a turn is queued.
@@ -229,14 +236,19 @@ server returns `needs_confirm`.
 
 `web/dist` is built by `make web` and embedded by `web/embed.go`. There is no
 copy step, because `go:embed` cannot reference paths outside its own package —
-hence a `web` package rather than embedding from `cmd/notebotd`. `web/dist` is
-committed so `go build ./...` works without a Node toolchain.
+hence a `web` package rather than embedding from `cmd/notebotd`. The built
+assets are not committed; a tracked `web/dist/.gitkeep` keeps the embed
+resolvable on a fresh clone, and `go build ./...` works before the first build.
 
 ## Key flows
 
 **Capture.** `nb "text"` → daemon `/api/capture` (or in-process) →
-`agent.Capture` → `RefineAndRoute` (clean body, model title/folder, keyword
-fallback) → `store.Create` writes Markdown and indexes it.
+`RefineAndRoute` (clean body, model title/folder, keyword fallback). If the
+refined title matches an existing note, the server returns
+`{needs_choice, existing, refined}` instead of saving; the client prompts
+(update / new / cancel) and re-sends with `decision` plus the prior `refined`
+payload so the model is not consulted twice. Otherwise the note is written and
+indexed.
 
 **Query.** `nb list --since yesterday` → `dates.Range` → `store.Query` → rows.
 `nb find milk` → `store.SearchQuery` → FTS5, `LIKE` fallback.

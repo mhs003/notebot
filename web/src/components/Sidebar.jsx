@@ -1,9 +1,10 @@
-import { Home, Clock, Folder, Settings, FileText, Layers, Hash } from 'lucide-react'
+import { Home, Clock, CalendarDays, Folder, Settings, FileText, Layers, Hash } from 'lucide-react'
 import { cn } from '../lib/utils'
 
 const nav = [
   { id: 'home', label: 'Home', icon: Home },
   { id: 'recent', label: 'Recent', icon: Clock },
+  { id: 'today', label: 'Today', icon: CalendarDays },
   { id: 'folders', label: 'Folders', icon: Folder },
   { id: 'settings', label: 'Settings', icon: Settings },
 ]

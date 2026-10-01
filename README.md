@@ -78,6 +78,36 @@ nb "buy milk and eggs" --folder shopping   # force a folder
 nb "draft the release notes" --dry-run     # preview without saving
 ```
 
+If the text starts with a management verb (`update`, `change`, `delete`,
+`remove`, `move`) **and** resolves to an existing note or folder, it is treated
+as a request instead of a note:
+
+```bash
+nb "update the Chores note with: I will do my chores tomorrow"
+nb "move the milk note to shopping"
+nb "delete the old plan note"
+```
+
+Otherwise it is saved as a note — so `nb "Move the meeting to friday"` is
+captured, not interpreted. Requests that change existing notes ask for
+confirmation.
+
+If a captured note's refined title matches an existing note, `nb` asks before
+creating a second copy:
+
+```
+A note titled "Chores" already exists:
+  448facd4  [inbox]  I will do my chores tomorrow
+
+New text:
+  I will do my chores today!
+
+  [u]pdate the existing note, [n]ew note, [c]ancel?
+```
+
+When stdin is not a terminal, the note is created without prompting; pass
+`--new` to skip the prompt explicitly.
+
 ### Query
 
 | Command | Description |
@@ -189,5 +219,7 @@ gofmt -w cmd internal
 ```
 
 `web/dist` is built by `make web` and embedded into `notebotd` by
-`web/embed.go`. There is no copy step; after changing the frontend, run
-`make web` and rebuild the daemon.
+`web/embed.go` — there is no copy step. The built assets are **not** committed;
+a tracked `web/dist/.gitkeep` placeholder keeps `go build ./...` working before
+the first build, and the daemon serves a "dashboard not built" page until you
+run `make web` and rebuild notebotd.

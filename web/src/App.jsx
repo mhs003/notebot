@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Search, Plus, Bot, RefreshCw } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Search, Plus, Bot, RefreshCw, FolderPlus } from 'lucide-react'
 import { Sidebar } from './components/Sidebar'
-import { NoteCard, FolderCard } from './components/NoteCard'
+import { NoteCard } from './components/NoteCard'
+import { FolderCard } from './components/FolderCard'
 import { CreateModal } from './components/CreateModal'
 import { AgentSheet } from './components/AgentSheet'
 import { NoteView } from './components/NoteView'
@@ -10,6 +11,14 @@ import { Settings } from './pages/Settings'
 import { Button } from './components/ui/button'
 import { Input } from './components/ui/input'
 import { api, Unauthorized } from './lib/api'
+
+// Time filters mirror the CLI's `nb today` / `nb yesterday`.
+const VIEW_PARAMS = {
+  home: { limit: 100 },
+  recent: { limit: 30, by: 'updated' },
+  today: { since: 'today' },
+  yesterday: { since: 'yesterday', until: 'yesterday' },
+}
 
 export default function App() {
   const [authed, setAuthed] = useState(null)
@@ -22,6 +31,8 @@ export default function App() {
   const [openNote, setOpenNote] = useState(null)
   const [showCreate, setShowCreate] = useState(false)
   const [showAgent, setShowAgent] = useState(false)
+  const [newFolder, setNewFolder] = useState('')
+  const searchTimer = useRef(null)
 
   useEffect(() => {
     api.status()
@@ -29,10 +40,15 @@ export default function App() {
       .catch(() => setAuthed(false))
   }, [])
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (q = '') => {
     setLoading(true)
     try {
-      const [n, f] = await Promise.all([api.notes(), api.folders()])
+      const params = { ...(VIEW_PARAMS[view] || {}) }
+      if (view === 'folders' && activeFolder) params.folder = activeFolder
+      const [n, f] = await Promise.all([
+        q ? api.search(q, params) : api.notes(params),
+        api.folders(),
+      ])
       setNotes(n || [])
       setFolders(f || [])
     } catch (e) {
@@ -40,20 +56,15 @@ export default function App() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [view, activeFolder])
 
-  useEffect(() => { if (authed) load() }, [authed, load])
+  useEffect(() => { if (authed) load(query) }, [authed, load])
 
-  const visible = useMemo(() => {
-    let list = notes
-    if (view === 'recent') list = [...list].sort((a, b) => new Date(b.updated) - new Date(a.updated)).slice(0, 30)
-    if (view === 'folders' && activeFolder) list = list.filter((n) => n.folder === activeFolder)
-    if (query.trim()) {
-      const q = query.toLowerCase()
-      list = list.filter((n) => n.title.toLowerCase().includes(q) || (n.body || '').toLowerCase().includes(q))
-    }
-    return list
-  }, [notes, view, activeFolder, query])
+  const onSearch = (value) => {
+    setQuery(value)
+    clearTimeout(searchTimer.current)
+    searchTimer.current = setTimeout(() => load(value), 250)
+  }
 
   const folderCounts = useMemo(() => {
     const m = {}
@@ -63,10 +74,26 @@ export default function App() {
 
   const logout = async () => { await api.logout().catch(() => {}); setAuthed(false) }
 
+  const addFolder = async (e) => {
+    e.preventDefault()
+    if (!newFolder.trim()) return
+    const name = newFolder.trim().toLowerCase().replace(/\s+/g, '-')
+    await api.createFolder(name)
+    setNewFolder('')
+    load(query)
+  }
+
   if (authed === null) return <div className="flex min-h-screen items-center justify-center text-muted-foreground">Loading…</div>
   if (!authed) return <Login onDone={() => setAuthed(true)} />
 
-  const heading = openNote ? '' : view === 'home' ? 'Home' : view === 'recent' ? 'Recent' : view === 'folders' ? (activeFolder ? `#${activeFolder}` : 'Folders') : 'Settings'
+  const heading = openNote
+    ? ''
+    : view === 'home' ? 'Home'
+    : view === 'recent' ? 'Recent'
+    : view === 'today' ? 'Today'
+    : view === 'yesterday' ? 'Yesterday'
+    : view === 'folders' ? (activeFolder ? `#${activeFolder}` : 'Folders')
+    : 'Settings'
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -81,7 +108,7 @@ export default function App() {
       <main className="flex flex-1 flex-col overflow-hidden">
         {openNote ? (
           <div className="flex-1 overflow-y-auto">
-            <NoteView id={openNote} onBack={() => setOpenNote(null)} onChanged={load} />
+            <NoteView id={openNote} folders={folders} onBack={() => setOpenNote(null)} onChanged={() => load(query)} />
           </div>
         ) : view === 'settings' ? (
           <div className="flex-1 overflow-y-auto">
@@ -96,26 +123,41 @@ export default function App() {
                 <Input
                   placeholder="Search notes…"
                   value={query}
-                  onChange={(e) => setQuery(e.target.value)}
+                  onChange={(e) => onSearch(e.target.value)}
                   className="pl-9"
                 />
               </div>
-              <Button variant="ghost" size="icon" onClick={load} aria-label="Refresh">
+              <Button variant="ghost" size="icon" onClick={() => load(query)} aria-label="Refresh">
                 <RefreshCw className={loading ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
               </Button>
             </header>
 
             <div className="flex-1 overflow-y-auto p-6">
               {view === 'folders' && !activeFolder ? (
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                  {folders.length === 0 && (
-                    <p className="col-span-full py-16 text-center text-muted-foreground">No folders yet. Capture a note to create one.</p>
-                  )}
-                  {folders.map((f) => (
-                    <FolderCard key={f} name={f} count={folderCounts[f] || 0} onClick={() => setActiveFolder(f)} />
-                  ))}
-                </div>
-              ) : visible.length === 0 ? (
+                <>
+                  <form onSubmit={addFolder} className="mb-5 flex max-w-sm items-center gap-2">
+                    <Input placeholder="New folder name" value={newFolder} onChange={(e) => setNewFolder(e.target.value)} />
+                    <Button type="submit" variant="outline" disabled={!newFolder.trim()}>
+                      <FolderPlus className="h-4 w-4" /> Add
+                    </Button>
+                  </form>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                    {folders.length === 0 && (
+                      <p className="col-span-full py-16 text-center text-muted-foreground">No folders yet.</p>
+                    )}
+                    {folders.map((f) => (
+                      <FolderCard
+                        key={f}
+                        name={f}
+                        count={folderCounts[f] || 0}
+                        onClick={() => setActiveFolder(f)}
+                        onRename={async (old, next) => { await api.renameFolder(old, next); if (activeFolder === old) setActiveFolder(next); load(query) }}
+                        onDelete={async (name) => { await api.deleteFolder(name); if (activeFolder === name) setActiveFolder(null); load(query) }}
+                      />
+                    ))}
+                  </div>
+                </>
+              ) : notes.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-24 text-center">
                   <p className="text-lg font-medium">No notes yet</p>
                   <p className="mt-1 text-sm text-muted-foreground">
@@ -124,7 +166,7 @@ export default function App() {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                  {visible.map((n) => <NoteCard key={n.id} note={n} onClick={() => setOpenNote(n.id)} />)}
+                  {notes.map((n) => <NoteCard key={n.id} note={n} onClick={() => setOpenNote(n.id)} />)}
                 </div>
               )}
             </div>
@@ -145,9 +187,10 @@ export default function App() {
         open={showCreate}
         onClose={() => setShowCreate(false)}
         folders={folders}
-        onSaved={async (note) => { await api.createNote(note); load() }}
+        existingTitles={notes.map((n) => n.title)}
+        onSaved={async (note) => { await api.createNote(note); load(query) }}
       />
-      <AgentSheet open={showAgent} onClose={() => setShowAgent(false)} onChanged={load} />
+      <AgentSheet open={showAgent} onClose={() => setShowAgent(false)} onChanged={() => load(query)} />
     </div>
   )
 }

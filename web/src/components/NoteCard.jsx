@@ -24,17 +24,3 @@ export function NoteCard({ note, onClick }) {
     </Card>
   )
 }
-
-export function FolderCard({ name, count, onClick }) {
-  return (
-    <Card onClick={onClick} className="flex cursor-pointer items-center gap-3 p-4 transition-all hover:border-primary/40 hover:shadow-md">
-      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-        <Folder className="h-5 w-5" />
-      </div>
-      <div>
-        <div className="font-medium">{name}</div>
-        <div className="text-xs text-muted-foreground">{count} note{count === 1 ? '' : 's'}</div>
-      </div>
-    </Card>
-  )
-}

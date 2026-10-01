@@ -42,7 +42,7 @@ func main() {
 		dataDir = v
 	}
 	if len(os.Args) > 1 && isCaptureArg(os.Args[1]) {
-		var dry bool
+		var dry, forceNew bool
 		var folder string
 		var text []string
 		args := os.Args[1:]
@@ -51,6 +51,8 @@ func main() {
 			switch {
 			case a == "--dry-run":
 				dry = true
+			case a == "--new":
+				forceNew = true
 			case a == "--folder" && i+1 < len(args):
 				i++
 				folder = args[i]
@@ -60,17 +62,17 @@ func main() {
 				text = append(text, args[i+1:]...)
 				i = len(args)
 			case strings.HasPrefix(a, "-"):
-				fmt.Fprintf(os.Stderr, "unknown flag %s for capture (only --dry-run and --folder apply)\n", a)
+				fmt.Fprintf(os.Stderr, "unknown flag %s for capture (only --dry-run, --new and --folder apply)\n", a)
 				os.Exit(2)
 			default:
 				text = append(text, a)
 			}
 		}
 		if len(text) == 0 {
-			fmt.Fprintln(os.Stderr, "usage: nb [--dry-run] [--folder NAME] <text...>")
+			fmt.Fprintln(os.Stderr, "usage: nb [--dry-run] [--new] [--folder NAME] <text...>")
 			os.Exit(2)
 		}
-		if err := capture(dataDir, strings.Join(text, " "), folder, dry); err != nil {
+		if err := capture(dataDir, strings.Join(text, " "), folder, dry, forceNew); err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
 			os.Exit(1)
 		}
@@ -84,11 +86,13 @@ func main() {
 				return cmd.Help()
 			}
 			dry, _ := cmd.Flags().GetBool("dry-run")
+			forceNew, _ := cmd.Flags().GetBool("new")
 			folder, _ := cmd.Flags().GetString("folder")
-			return capture(dataDir, strings.Join(args, " "), folder, dry)
+			return capture(dataDir, strings.Join(args, " "), folder, dry, forceNew)
 		},
 	}
 	root.Flags().Bool("dry-run", false, "show refined note without saving")
+	root.Flags().Bool("new", false, "always create a new note, even if the title exists")
 	root.Flags().String("folder", "", "force folder")
 
 	root.AddCommand(newListCmd(&dataDir))
@@ -202,15 +206,35 @@ func daemonURL(cfg store.Config) string {
 	return fmt.Sprintf("http://127.0.0.1:%d", cfg.Port)
 }
 
-func capture(dataDir, raw, forceFolder string, dry bool) error {
+// captureResp is either a saved note or a "this title already exists" prompt.
+type captureResp struct {
+	store.Note
+	NeedsChoice bool           `json:"needs_choice"`
+	Existing    *store.Note    `json:"existing"`
+	Refined     *agent.Refined `json:"refined"`
+}
+
+func capture(dataDir, raw, forceFolder string, dry, forceNew bool) error {
 	st, cfg, err := loadStore(dataDir)
 	if err != nil {
 		return err
 	}
 	defer st.Close()
-	if !dry && tryDaemonCapture(cfg, raw) {
-		return nil
+
+	// A capture that starts with a management verb and resolves to a real note
+	// or folder is a request, not a note. Anything else is captured normally,
+	// so a sentence like "Move the meeting to friday" is not mistaken for a
+	// command (and never reaches the model, which would guess).
+	if !dry && forceFolder == "" && looksLikeCommand(raw) && agent.RoutePrompt(st, raw) {
+		return runAsk(dataDir, raw, false)
 	}
+
+	if !dry {
+		if handled := captureViaDaemon(cfg, raw, forceNew); handled {
+			return nil
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	ag, err := agent.New(ctx, cfg, st)
@@ -229,6 +253,22 @@ func capture(dataDir, raw, forceFolder string, dry bool) error {
 		fmt.Printf("title: %s\nfolder: %s\ntags: %s\n\n%s\n", r.Title, r.Folder, strings.Join(r.Tags, ","), r.Body)
 		return nil
 	}
+
+	if existing, _ := st.FindSimilarTitle(r.Title); existing != nil && !forceNew {
+		switch askDuplicate(existing, r) {
+		case choiceCancel:
+			fmt.Println("cancelled")
+			return nil
+		case choiceUpdate:
+			existing.Title, existing.Body, existing.Folder, existing.Tags = r.Title, r.Body, r.Folder, r.Tags
+			if err := st.Update(existing); err != nil {
+				return err
+			}
+			fmt.Printf("updated: [%s] %s\n", existing.Folder, existing.Title)
+			return nil
+		}
+	}
+
 	n := &store.Note{Title: r.Title, Body: r.Body, Folder: r.Folder, Tags: r.Tags, Source: "cli", RawPrompt: raw}
 	if err := st.Create(n); err != nil {
 		return err
@@ -237,34 +277,73 @@ func capture(dataDir, raw, forceFolder string, dry bool) error {
 	return nil
 }
 
-func tryDaemonCapture(cfg store.Config, raw string) bool {
-	body, _ := json.Marshal(map[string]string{"raw": raw})
+// captureViaDaemon refines and saves through the running daemon, asking before
+// overwriting when the title matches an existing note. It reports whether the
+// daemon handled the capture.
+func captureViaDaemon(cfg store.Config, raw string, forceNew bool) bool {
+	resp, ok := daemonCapture(cfg, map[string]any{"raw": raw})
+	if !ok {
+		return false
+	}
+	if !resp.NeedsChoice {
+		fmt.Printf("saved (daemon): [%s] %s\n", resp.Folder, resp.Title)
+		return true
+	}
+
+	choice := choiceNew
+	if !forceNew {
+		choice = askDuplicate(resp.Existing, *resp.Refined)
+	}
+	req := map[string]any{"raw": raw, "refined": resp.Refined}
+	switch choice {
+	case choiceCancel:
+		fmt.Println("cancelled")
+		return true
+	case choiceUpdate:
+		req["decision"] = "update"
+		req["target_id"] = resp.Existing.ID
+	default:
+		req["decision"] = "new"
+	}
+	out, ok := daemonCapture(cfg, req)
+	if !ok {
+		return false
+	}
+	if req["decision"] == "update" {
+		fmt.Printf("updated (daemon): [%s] %s\n", out.Folder, out.Title)
+	} else {
+		fmt.Printf("saved (daemon): [%s] %s\n", out.Folder, out.Title)
+	}
+	return true
+}
+
+func daemonCapture(cfg store.Config, payload map[string]any) (*captureResp, bool) {
+	body, _ := json.Marshal(payload)
 	req, err := http.NewRequest(http.MethodPost, daemonURL(cfg)+"/api/capture", bytes.NewReader(body))
 	if err != nil {
-		return false
+		return nil, false
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if cfg.PasswordHash != "" {
 		tok := store.SessionToken(cfg.SessionSecret)
 		if tok == "" {
-			return false
+			return nil, false
 		}
 		req.AddCookie(&http.Cookie{Name: "notebot_session", Value: tok})
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return false
+		return nil, false
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return false
+		return nil, false
 	}
-	var n store.Note
-	if err := json.NewDecoder(resp.Body).Decode(&n); err != nil {
-		return false
+	var out captureResp
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, false
 	}
-	fmt.Printf("saved (daemon): [%s] %s\n", n.Folder, n.Title)
-	return true
+	return &out, true
 }
 
 func listNotes(dataDir, folder string) error {
